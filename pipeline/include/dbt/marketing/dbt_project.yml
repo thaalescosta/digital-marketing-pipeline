@@ -1,0 +1,39 @@
+name: marketing
+version: 1.0.0
+config-version: 2
+
+profile: marketing
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+seed-paths: []
+snapshot-paths: []
+analysis-paths: []
+docs-paths: []
+target-path: "target"
+clean-targets: ["target"]
+
+vars:
+  # run_date intentionally has NO default (PRD §8.1): it is passed by the Airflow DAG as the
+  # run's data date (ds). When absent, incremental models fall back to max(partition date) in
+  # {{ this }} (PRD §8.3) via the marketing_lookback_boundary macro in macros/marketing_macros.sql.
+  lookback_days: 3
+  dim_date_start: '2026-01-01'
+  dim_date_end: '2026-12-31'
+
+models:
+  marketing:
+    staging:
+      +materialized: view
+      # Default dbt generate_schema_name is used (no macro override). The custom schema value
+      # is env-var driven so datasets resolve to <base>_staging / <base>_marts (PRD §2):
+      # BQ_STAGING_DATASET=digital_marketing_staging, BQ_MARTS_DATASET=digital_marketing_marts.
+      +schema: "{{ env_var('BQ_STAGING_DATASET', 'digital_marketing_staging') }}"
+    marts:
+      +schema: "{{ env_var('BQ_MARTS_DATASET', 'digital_marketing_marts') }}"
+      core:
+        +materialized: table
+        # fct_* models override materialized='incremental' in their own config()
+      reporting:
+        +materialized: table

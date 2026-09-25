@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "datagen"
+version = "0.1.0"
+description = "Deterministic fake marketing data generator for the digital marketing pipeline."
+requires-python = ">=3.12"
+dependencies = [
+    "faker",
+    "numpy>=1.26",
+    "pandas>=2.0",
+    "pyarrow",
+    "google-cloud-storage",
+    "google-cloud-bigquery",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+datagen-backfill = "datagen.backfill:main"
+datagen-daily = "datagen.daily_update:main"
+datagen-upload = "datagen.upload_gcs:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"

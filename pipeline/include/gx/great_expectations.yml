@@ -1,0 +1,40 @@
+# GX Core 1.x data context configuration for the digital-marketing pipeline.
+# Minimal by design: the runner (runner.py) assembles data sources, suites,
+# validation definitions and the checkpoint programmatically on every run.
+# Stores intentionally point under uncommitted/ so GX persistence never
+# clobbers the version-controlled suite/checkpoint files in this directory.
+# M4 (a real GX run inside the GX venv) validates this file against the
+# installed 1.x release and pins any key drift in docs/decisions.md.
+
+config_version: 4
+
+stores:
+  expectations_store:
+    class_name: ExpectationsStore
+    store_backend:
+      class_name: TupleFilesystemStoreBackend
+      base_directory: uncommitted/expectations/
+  validation_results_store:
+    class_name: ValidationResultsStore
+    store_backend:
+      class_name: TupleFilesystemStoreBackend
+      base_directory: uncommitted/validations/
+  checkpoint_store:
+    class_name: CheckpointStore
+    store_backend:
+      class_name: TupleFilesystemStoreBackend
+      base_directory: uncommitted/checkpoints/
+
+expectations_store_name: expectations_store
+validation_results_store_name: validation_results_store
+checkpoint_store_name: checkpoint_store
+
+data_docs_sites:
+  local_site:
+    class_name: SiteBuilder
+    show_how_to_buttons: true
+    store_backend:
+      class_name: TupleFilesystemStoreBackend
+      base_directory: uncommitted/data_docs/local_site/
+    site_index_builder:
+      class_name: DefaultSiteIndexBuilder

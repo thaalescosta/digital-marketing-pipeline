@@ -1,0 +1,426 @@
+version: 2
+
+models:
+  - name: rpt_channel_performance_daily
+    description: >
+      Channel performance by day (PRD §8.3, §8.4). Grain: date x channel. GA4 session
+      metrics joined with Google Ads metrics on the conformed channel_id from dim_channel;
+      dates/channels without activity are zero-filled (coalesce after a date x channel
+      scaffold). Metrics are SUMS at this grain; all ratios are safe_divide of those sums
+      (never averaged). ad_estimated_revenue_usd / roas_estimated are ESTIMATED (PRD §8.4).
+    columns:
+      - name: date
+        description: Calendar date (UTC).
+        tests:
+          - not_null
+      - name: channel_id
+        description: Conformed channel identifier (1-7); FK to dim_channel.
+        tests:
+          - not_null
+      - name: channel_name
+        description: Channel name from dim_channel, e.g. paid_search.
+      - name: channel_group
+        description: Channel group from dim_channel, e.g. Search.
+      - name: sessions
+        description: GA4 sessions; 0 when the channel has no sessions that day.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: users
+        description: Distinct non-null user_pseudo_id across sessions; 0 when none.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: purchases
+        description: GA4 sessions that contain a purchase; 0 when none.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: revenue_usd
+        description: GA4 purchase value (sum of event_value on purchase events); 0 when none.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: session_to_purchase_rate
+        description: purchases / sessions (safe_divide); in [0, 1].
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 1
+              inclusive: true
+      - name: ad_spend_usd
+        description: Google Ads spend; 0 when the channel has no ads rows that day.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: ad_impressions
+        description: Google Ads impressions; 0 when none.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: ad_clicks
+        description: Google Ads clicks; 0 when none; <= ad_impressions.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: ad_conversions
+        description: Google Ads conversions; 0 when none.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: ad_estimated_revenue_usd
+        description: ESTIMATED ads revenue = conversions * avg_order_value (PRD §8.4); 0 when none; >= 0.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: ctr
+        description: Click-through rate = ad_clicks / ad_impressions (safe_divide); in [0, 1].
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 1
+              inclusive: true
+      - name: cpc
+        description: Cost per click = ad_spend_usd / ad_clicks (safe_divide); >= 0.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: roas_estimated
+        description: ESTIMATED return on ad spend = ad_estimated_revenue_usd / ad_spend_usd (safe_divide); >= 0.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+    tests:
+      - unique:
+          column_name: [date, channel_id]
+      - expression_is_true:
+          expression: "ad_clicks <= ad_impressions"
+
+  - name: rpt_campaign_performance_daily
+    description: >
+      Campaign performance by day (PRD §8.3, §8.4). Grain: date x campaign. Ads metrics
+      summed from fct_ad_performance_daily to the campaign x date grain with campaign
+      attributes from dim_campaign. Rows exist only where ads activity exists — no phantom
+      rows outside a campaign's start/end window. All ratios are safe_divide of the summed
+      metrics (never averaged); estimated_revenue_usd / roas are ESTIMATED (PRD §8.4).
+    columns:
+      - name: date
+        description: Calendar date (UTC).
+        tests:
+          - not_null
+      - name: campaign_id
+        description: Campaign identifier; FK to dim_campaign.
+        tests:
+          - not_null
+      - name: campaign_name
+        description: Campaign display name.
+      - name: campaign_type
+        description: Campaign type (Search, Display, Shopping, Video).
+      - name: status
+        description: Campaign status (Active, Ended).
+      - name: spend_usd
+        description: Campaign-day ad spend in USD; >= 0.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: daily_budget_usd
+        description: Campaign daily budget in USD (latest snapshot); > 0.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: false
+      - name: budget_utilization
+        description: spend_usd / daily_budget_usd (safe_divide); can exceed 1 (spend <= ~1.3x budget, D8); >= 0.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: impressions
+        description: Campaign-day ad impressions; >= 0.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: clicks
+        description: Campaign-day ad clicks; >= 0; <= impressions.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: conversions
+        description: Campaign-day ad conversions; >= 0; <= clicks.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: estimated_revenue_usd
+        description: ESTIMATED revenue = conversions * avg_order_value (PRD §8.4); >= 0.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: ctr
+        description: Click-through rate = clicks / impressions (safe_divide); in [0, 1].
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 1
+              inclusive: true
+      - name: cpc
+        description: Cost per click = spend_usd / clicks (safe_divide); >= 0.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: cvr
+        description: Conversion rate = conversions / clicks (safe_divide); in [0, 1].
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 1
+              inclusive: true
+      - name: cpa
+        description: Cost per acquisition = spend_usd / conversions (safe_divide); >= 0.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: roas
+        description: ESTIMATED return on ad spend = estimated_revenue_usd / spend_usd (safe_divide); >= 0.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+    tests:
+      - unique:
+          column_name: [date, campaign_id]
+      - expression_is_true:
+          expression: "clicks <= impressions"
+      - expression_is_true:
+          expression: "conversions <= clicks"
+
+  - name: rpt_youtube_video_performance_daily
+    description: >
+      YouTube video performance by day (PRD §8.3, §8.4). Grain: date x video. Daily metrics
+      with cumulative views / watch time per video (window ordered by date).
+      avg_view_duration_min and engagement_rate are safe_divide of the daily sums (never
+      averaged).
+    columns:
+      - name: date
+        description: Calendar date (UTC).
+        tests:
+          - not_null
+      - name: video_id
+        description: YouTube video identifier; FK to dim_video.
+        tests:
+          - not_null
+      - name: video_title
+        description: Video title from dim_video.
+      - name: published_at
+        description: Video publish date from dim_video; <= date for every row.
+      - name: days_since_published
+        description: date - published_at in days; >= 0.
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: views
+        description: Daily video views; >= 0.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: watch_time_min
+        description: Daily watch time in minutes; >= 0.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: likes
+        description: Daily likes; >= 0.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: comments
+        description: Daily comments; >= 0.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: shares
+        description: Daily shares; >= 0.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: subscribers_gained
+        description: Daily subscribers gained; >= 0.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: avg_view_duration_min
+        description: watch_time_min / views (safe_divide); >= 0.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: engagement_rate
+        description: (likes + comments + shares) / views (safe_divide); >= 0. May exceed 1 (comments/shares are not bounded by views).
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: cumulative_views
+        description: Views summed over all dates of the video up to and including this date; >= views.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: cumulative_watch_time_min
+        description: Watch time summed over all dates of the video up to and including this date; >= watch_time_min.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+    tests:
+      - unique:
+          column_name: [date, video_id]
+      - expression_is_true:
+          expression: "cumulative_views >= views"
+      - expression_is_true:
+          expression: "cumulative_watch_time_min >= watch_time_min"
+
+  - name: rpt_conversion_funnel_daily
+    description: >
+      Conversion funnel by day and channel (PRD §8.3 P1). Grain: date x channel. Every
+      stage count is expressed as a percentage of SESSIONS, not as step-to-step rates
+      (PRD §3.3: funnel events are generated independently, so no enforced order). Rates
+      are safe_divide of stage sessions over total sessions.
+    columns:
+      - name: date
+        description: Calendar date (UTC).
+        tests:
+          - not_null
+      - name: channel_id
+        description: Conformed channel identifier (1-7); FK to dim_channel.
+        tests:
+          - not_null
+      - name: channel_name
+        description: Channel name from dim_channel, e.g. paid_search.
+      - name: channel_group
+        description: Channel group from dim_channel, e.g. Search.
+      - name: sessions
+        description: Total GA4 sessions; > 0 (only dates/channels with sessions appear).
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 1
+              inclusive: true
+      - name: sessions_with_page_view
+        description: Sessions containing at least one page_view; <= sessions.
+        tests:
+          - not_null
+      - name: page_view_rate
+        description: sessions_with_page_view / sessions (safe_divide); in [0, 1].
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 1
+              inclusive: true
+      - name: sessions_with_add_to_cart
+        description: Sessions containing at least one add_to_cart; <= sessions.
+        tests:
+          - not_null
+      - name: add_to_cart_rate
+        description: sessions_with_add_to_cart / sessions (safe_divide); in [0, 1].
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 1
+              inclusive: true
+      - name: sessions_with_begin_checkout
+        description: Sessions containing at least one begin_checkout; <= sessions.
+        tests:
+          - not_null
+      - name: begin_checkout_rate
+        description: sessions_with_begin_checkout / sessions (safe_divide); in [0, 1].
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 1
+              inclusive: true
+      - name: sessions_with_purchase
+        description: Sessions containing at least one purchase; <= sessions.
+        tests:
+          - not_null
+      - name: purchase_rate
+        description: sessions_with_purchase / sessions (safe_divide); in [0, 1].
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 1
+              inclusive: true
+    tests:
+      - unique:
+          column_name: [date, channel_id]
+      - expression_is_true:
+          expression: "sessions_with_page_view <= sessions"
+      - expression_is_true:
+          expression: "sessions_with_add_to_cart <= sessions"
+      - expression_is_true:
+          expression: "sessions_with_begin_checkout <= sessions"
+      - expression_is_true:
+          expression: "sessions_with_purchase <= sessions"

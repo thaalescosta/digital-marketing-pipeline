@@ -1,0 +1,28 @@
+# Run registry consumed by runner.py for the digital-marketing pipeline.
+# Not a GX-persisted checkpoint file: the runner assembles one in-memory
+# GX Core 1.x Checkpoint per suite per run from the suites listed here.
+# Docs: designs/architecture/spec files — PRD 9.2 (execution), DESIGN Decision 2.
+
+name: daily_checkpoint
+description: >
+  Maps every version-controlled suite to its target dataset and default
+  scope. scope=partition validates WHERE <partition_column> = ds (daily
+  DAG); scope=full validates the whole table (initial-load DAG). The
+  runner's --scope flag overrides default_scope.
+default_scope: partition
+suites:
+  - name: raw_ga4_events
+    file: suites/raw_ga4_events_suite.json
+    dataset: raw
+  - name: raw_ads
+    file: suites/raw_ads_suite.json
+    dataset: raw
+  - name: raw_youtube
+    file: suites/raw_youtube_suite.json
+    dataset: raw
+  - name: raw_dims
+    file: suites/raw_dims_suite.json
+    dataset: raw
+  - name: marts_daily_summary
+    file: suites/marts_daily_summary_suite.json
+    dataset: marts

@@ -1,0 +1,111 @@
+{
+  "name": "raw_ga4_events",
+  "meta": {
+    "description": "Raw GA4 events contract, scoped to the run's date partition (PRD 9.3).",
+    "table": "raw_ga4_events",
+    "partition_column": "event_date",
+    "severity_policy": "CRITICAL fails the task; WARN logs and continues (PRD 9.5). Unknown severity defaults to CRITICAL.",
+    "templating": "Strings containing {placeholders} are rendered by runner.py from the run context (ds, ds_plus_1, ds_plus_2, project, dataset, raw_dataset, marts_dataset, clause_*).",
+    "data_notes": "event_timestamp may spill into the next day for sessions crossing midnight (PRD 3.3): the timestamp band is [ds, ds+2d), never ds equality."
+  },
+  "batches": [
+    {
+      "name": "events",
+      "type": "table",
+      "table": "raw_ga4_events",
+      "partition_column": "event_date",
+      "expectations": [
+        {
+          "type": "ExpectTableRowCountToBeBetween",
+          "kwargs": {"min_value": 1200, "max_value": 3000},
+          "meta": {"severity": "WARN"}
+        },
+        {
+          "type": "ExpectColumnValuesToNotBeNull",
+          "kwargs": {"column": "event_id"},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToBeUnique",
+          "kwargs": {"column": "event_id"},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToEqual",
+          "kwargs": {"column": "event_date", "value": "{ds}"},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToBeInSet",
+          "kwargs": {
+            "column": "event_name",
+            "value_set": ["session_start", "page_view", "scroll", "add_to_cart", "begin_checkout", "purchase"]
+          },
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToBeInSet",
+          "kwargs": {"column": "channel_id", "value_set": [1, 2, 3, 4, 5, 6, 7]},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToNotBeNull",
+          "kwargs": {"column": "session_id"},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToNotBeNull",
+          "kwargs": {"column": "user_pseudo_id", "mostly": 0.95},
+          "meta": {"severity": "WARN"}
+        },
+        {
+          "type": "ExpectColumnValuesToNotBeNull",
+          "kwargs": {
+            "column": "page_location",
+            "mostly": 0.9,
+            "row_condition": "event_name != 'session_start'",
+            "condition_parser": "bigquery"
+          },
+          "meta": {"severity": "WARN"}
+        },
+        {
+          "type": "ExpectColumnValuesToNotBeNull",
+          "kwargs": {
+            "column": "event_value",
+            "row_condition": "event_name = 'purchase'",
+            "condition_parser": "bigquery"
+          },
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToBeNull",
+          "kwargs": {
+            "column": "event_value",
+            "row_condition": "event_name != 'purchase'",
+            "condition_parser": "bigquery"
+          },
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToBeBetween",
+          "kwargs": {
+            "column": "event_value",
+            "min_value": 0,
+            "row_condition": "event_name = 'purchase'",
+            "condition_parser": "bigquery"
+          },
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToBeBetween",
+          "kwargs": {
+            "column": "event_timestamp",
+            "min_value": "{ds} 00:00:00",
+            "max_value": "{ds_plus_2} 00:00:00"
+          },
+          "meta": {"severity": "CRITICAL"}
+        }
+      ]
+    }
+  ]
+}

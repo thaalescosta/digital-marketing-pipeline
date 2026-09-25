@@ -1,0 +1,132 @@
+name: Quality Checks
+
+# Fast, per-PR checks that don't need the full plugin build:
+#   - Python test suite (tests/)
+#   - Agent-router drift check
+#   - Shell script lint (shellcheck)
+# Triggered on any change to scripts/, tests/, or shell files.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/**'
+      - 'tests/**'
+      - '**/*.sh'
+      - '.claude/**'
+      - 'plugin/**'
+      - 'plugin-extras/**'
+      - 'tools/spec-linter/**'
+      - 'tools/spec-judge/**'
+      - 'tools/spec-scorer/**'
+      - '.github/workflows/quality-checks.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/**'
+      - 'tests/**'
+      - '**/*.sh'
+      - '.claude/**'
+      - 'plugin/**'
+      - 'plugin-extras/**'
+      - 'tools/spec-linter/**'
+      - 'tools/spec-judge/**'
+      - 'tools/spec-scorer/**'
+      - '.github/workflows/quality-checks.yml'
+
+jobs:
+  python:
+    name: Python tests + drift check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install pytest
+        run: python3 -m pip install pytest
+
+      - name: Run test suite
+        run: python3 -m pytest tests/ -v
+
+      - name: Check agent-router drift
+        run: python3 scripts/generate-agent-router.py --check
+
+      - name: Check plugin mirror drift
+        run: |
+          ./build-plugin.sh
+          git diff --exit-code plugin/ .claude-plugin/
+
+  shellcheck:
+    name: Shell script lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Run shellcheck (warnings + errors)
+        run: |
+          shellcheck -S warning \
+            build-plugin.sh \
+            .claude/skills/visual-explainer/scripts/share.sh \
+            plugin-extras/scripts/init-workspace.sh \
+            scripts/bump.sh
+
+  spec-linter:
+    name: Spec-linter component tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install component (editable, with dev extras)
+        run: python3 -m pip install -e 'tools/spec-linter[dev]'
+
+      - name: Run component tests
+        run: python3 -m pytest tools/spec-linter/tests -v
+
+  spec-judge:
+    name: Spec-judge component tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install components (editable, with dev extras)
+        run: python3 -m pip install -e tools/spec-linter -e 'tools/spec-judge[dev]'
+
+      - name: Run component tests
+        run: python3 -m pytest tools/spec-judge/tests -v
+
+      - name: Verify cross-package import through the wrapper
+        run: tools/spec-judge/spec-judge --selfcheck
+
+  spec-scorer:
+    name: Spec-scorer component tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install components (editable, with dev extras)
+        run: python3 -m pip install -e tools/spec-linter -e 'tools/spec-scorer[dev]'
+
+      - name: Run component tests
+        run: python3 -m pytest tools/spec-scorer/tests -v

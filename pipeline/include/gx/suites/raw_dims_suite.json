@@ -1,0 +1,118 @@
+{
+  "name": "raw_dims",
+  "meta": {
+    "description": "Raw dimension contracts for raw_dim_campaign, raw_dim_channel, raw_dim_video, scoped to the run's snapshot date (PRD 9.3). One suite file covers the three tables as separate batch sections; the runner builds one validation definition per batch.",
+    "partition_column": "_snapshot_date",
+    "severity_policy": "CRITICAL fails the task; WARN logs and continues (PRD 9.5). Unknown severity defaults to CRITICAL.",
+    "templating": "Strings containing {placeholders} are rendered by runner.py from the run context (ds, ds_plus_1, ds_plus_2, project, dataset, raw_dataset, marts_dataset, clause_*).",
+    "scope_notes": "scope=partition validates the ds snapshot only. scope=full (initial load) validates the whole table; this is correct because the initial load writes exactly one snapshot (_snapshot_date = 2026-06-30, PRD 6.3). Uniqueness uses the composite (key, _snapshot_date) so it holds per snapshot in both scopes.",
+    "contract_columns": "Column-set expectations assert the exact PRD 5 contract columns including inserted_at and _snapshot_date; any drift fails as CRITICAL."
+  },
+  "batches": [
+    {
+      "name": "raw_dim_campaign",
+      "type": "table",
+      "table": "raw_dim_campaign",
+      "partition_column": "_snapshot_date",
+      "expectations": [
+        {
+          "type": "ExpectCompoundColumnsToBeUnique",
+          "kwargs": {"column_list": ["campaign_id", "_snapshot_date"]},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToNotBeNull",
+          "kwargs": {"column": "campaign_id"},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToBeInSet",
+          "kwargs": {"column": "campaign_type", "value_set": ["Search", "Display", "Shopping", "Video"]},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToBeInSet",
+          "kwargs": {"column": "status", "value_set": ["Active", "Ended"]},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectTableColumnsToMatchSet",
+          "kwargs": {
+            "column_set": ["campaign_id", "campaign_name", "campaign_type", "status", "start_date", "end_date", "daily_budget_usd", "inserted_at", "_snapshot_date"],
+            "exact_match": true
+          },
+          "meta": {"severity": "CRITICAL"}
+        }
+      ]
+    },
+    {
+      "name": "raw_dim_campaign_constraints",
+      "type": "query",
+      "sql": "SELECT 1 AS check_name FROM UNNEST([1]) AS x WHERE EXISTS (SELECT 1 FROM `{project}.{dataset}.raw_dim_campaign` WHERE {clause_snapshot_date} AND (end_date < start_date OR daily_budget_usd <= 0))",
+      "expectations": [
+        {
+          "type": "ExpectTableRowCountToEqual",
+          "kwargs": {"value": 0},
+          "meta": {"severity": "CRITICAL"}
+        }
+      ]
+    },
+    {
+      "name": "raw_dim_channel",
+      "type": "table",
+      "table": "raw_dim_channel",
+      "partition_column": "_snapshot_date",
+      "expectations": [
+        {
+          "type": "ExpectTableRowCountToEqual",
+          "kwargs": {"value": 7},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectCompoundColumnsToBeUnique",
+          "kwargs": {"column_list": ["channel_id", "_snapshot_date"]},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToBeInSet",
+          "kwargs": {"column": "channel_id", "value_set": [1, 2, 3, 4, 5, 6, 7]},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectTableColumnsToMatchSet",
+          "kwargs": {
+            "column_set": ["channel_id", "channel_name", "channel_group", "inserted_at", "_snapshot_date"],
+            "exact_match": true
+          },
+          "meta": {"severity": "CRITICAL"}
+        }
+      ]
+    },
+    {
+      "name": "raw_dim_video",
+      "type": "table",
+      "table": "raw_dim_video",
+      "partition_column": "_snapshot_date",
+      "expectations": [
+        {
+          "type": "ExpectCompoundColumnsToBeUnique",
+          "kwargs": {"column_list": ["video_id", "_snapshot_date"]},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToNotBeNull",
+          "kwargs": {"column": "video_id"},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectTableColumnsToMatchSet",
+          "kwargs": {
+            "column_set": ["video_id", "video_title", "published_at", "video_duration_min", "inserted_at", "_snapshot_date"],
+            "exact_match": true
+          },
+          "meta": {"severity": "CRITICAL"}
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,224 @@
+version: 2
+
+sources:
+  - name: raw
+    description: >
+      Raw landing tables in the BigQuery raw dataset, loaded by the Python loader with
+      partition-scoped WRITE_TRUNCATE jobs (facts partitioned by business date, dimensions
+      by _snapshot_date). NO wall-clock freshness checks are configured: data dates are
+      simulated (PRD §8.1) and completeness is enforced by the Great Expectations raw
+      suites. dbt unique/not_null tests here fail fast on contract violations.
+    database: "{{ env_var('GCP_PROJECT_ID') }}"
+    schema: "{{ env_var('BQ_RAW_DATASET', 'digital_marketing_raw') }}"
+    tables:
+      - name: raw_ga4_events
+        description: >
+          One row per GA4-style web event (PRD §5). Partitioned by event_date.
+          Grain: event_id. NOTE (PRD §3.3): event_timestamp may spill into the next day
+          while event_date keeps the session start date — never assert
+          date(event_timestamp) = event_date.
+        columns:
+          - name: event_id
+            description: Unique event identifier (UUID).
+            tests:
+              - unique
+              - not_null
+          - name: event_date
+            description: Data date of the run (UTC); partition column; always the session start date.
+            tests:
+              - not_null
+          - name: event_timestamp
+            description: Event timestamp (UTC); may fall in [event_date, event_date + 2 days).
+          - name: event_name
+            description: Event type; one of session_start, page_view, scroll, add_to_cart, begin_checkout, purchase.
+            tests:
+              - not_null
+          - name: user_pseudo_id
+            description: Pseudonymous user identifier; null for ~2% (anonymous) sessions.
+          - name: session_id
+            description: Session identifier, format YYYYMMDD-<10 digits>; all events of a session share event_date.
+            tests:
+              - not_null
+          - name: channel_id
+            description: Marketing channel id (1-7); FK to raw_dim_channel.
+            tests:
+              - not_null
+          - name: page_location
+            description: Full page URL; null for all session_start events and ~5% of other events.
+          - name: event_value
+            description: Monetary event value; only set for purchase events.
+          - name: inserted_at
+            description: Pipeline load timestamp (UTC), fixed once per DAG run.
+
+      - name: raw_ads_campaign_daily
+        description: >
+          One row per ad per day from the simulated Google Ads source (PRD §5).
+          Partitioned by spend_date. Grain: (campaign_id, ad_group_id, ad_id, spend_date).
+        columns:
+          - name: campaign_id
+            description: Campaign identifier; FK to raw_dim_campaign.
+            tests:
+              - not_null
+          - name: channel_id
+            description: Ads channel id; 1 (paid_search) or 4 (social) in this simulation (D11).
+            tests:
+              - not_null
+          - name: ad_group_id
+            description: Ad group identifier; stable per campaign (D7).
+            tests:
+              - not_null
+          - name: ad_id
+            description: Ad identifier; stable per campaign (D7).
+            tests:
+              - not_null
+          - name: spend_date
+            description: Data date of the run (UTC); partition column.
+            tests:
+              - not_null
+          - name: spend_usd
+            description: Campaign-day ad spend in USD, >= 0; <= ~1.3x daily budget (D8).
+          - name: impressions
+            description: Ad impressions, >= 0; clicks <= impressions.
+          - name: clicks
+            description: Ad clicks, >= 0; conversions <= clicks.
+          - name: conversions
+            description: Ad conversions, >= 0.
+          - name: avg_order_value
+            description: Average order value in USD, > 0; independent of GA4 purchases (PRD §3.3).
+          - name: inserted_at
+            description: Pipeline load timestamp (UTC), fixed once per DAG run.
+          - name: _load_date
+            description: The batch's data date (= spend_date); NOT a wall-clock load date.
+        tests:
+          - unique:
+              column_name: [campaign_id, ad_group_id, ad_id, spend_date]
+
+      - name: raw_youtube_video_daily
+        description: >
+          One row per video per day from the simulated YouTube Analytics source (PRD §5).
+          Partitioned by video_date. Grain: (video_id, video_date).
+        columns:
+          - name: video_id
+            description: YouTube video identifier; FK to raw_dim_video.
+            tests:
+              - not_null
+          - name: video_date
+            description: Data date of the run (UTC); partition column.
+            tests:
+              - not_null
+          - name: views
+            description: Daily video views, >= 0.
+          - name: watch_time_min
+            description: Daily watch time in minutes, >= 0.
+          - name: likes
+            description: Daily likes, >= 0 and <= views.
+          - name: comments
+            description: Daily comments, >= 0.
+          - name: shares
+            description: Daily shares, >= 0.
+          - name: subscribers_gained
+            description: Daily subscribers gained, >= 0 and <= views.
+          - name: inserted_at
+            description: Pipeline load timestamp (UTC), fixed once per DAG run.
+          - name: _load_date
+            description: The batch's data date (= video_date); NOT a wall-clock load date.
+        tests:
+          - unique:
+              column_name: [video_id, video_date]
+
+      - name: raw_dim_campaign
+        description: >
+          Daily full snapshot of the campaign dimension (PRD §5, D10). Partitioned by
+          _snapshot_date; each daily run appends that day's full snapshot. A campaign_id
+          appears once per snapshot.
+        columns:
+          - name: campaign_id
+            description: Campaign identifier; stable, never reused (PRD §6.1.2).
+            tests:
+              - not_null
+          - name: campaign_name
+            description: Campaign display name.
+            tests:
+              - not_null
+          - name: campaign_type
+            description: Campaign type; one of Search, Display, Shopping, Video.
+            tests:
+              - not_null
+          - name: status
+            description: Campaign status as of the snapshot; Active or Ended.
+            tests:
+              - not_null
+          - name: start_date
+            description: Campaign start date; fixed at creation.
+          - name: end_date
+            description: Campaign end date; fixed at creation; >= start_date.
+          - name: daily_budget_usd
+            description: Daily budget in USD; > 0.
+          - name: inserted_at
+            description: Pipeline load timestamp (UTC), fixed once per DAG run.
+          - name: _snapshot_date
+            description: Snapshot date for this dimension version (partition column).
+            tests:
+              - not_null
+        tests:
+          - unique:
+              column_name: [campaign_id, _snapshot_date]
+
+      - name: raw_dim_channel
+        description: >
+          Daily full snapshot of the channel dimension (7 fixed rows: paid_search,
+          organic_search, direct, social, email, referral, organic_video). Partitioned by
+          _snapshot_date (PRD §5, D10).
+        columns:
+          - name: channel_id
+            description: Channel identifier (1-7).
+            tests:
+              - not_null
+          - name: channel_name
+            description: Channel name, e.g. paid_search.
+            tests:
+              - not_null
+          - name: channel_group
+            description: Channel group, e.g. Search, Social, Direct, Email, Referral, Organic Video.
+            tests:
+              - not_null
+          - name: inserted_at
+            description: Pipeline load timestamp (UTC), fixed once per DAG run.
+          - name: _snapshot_date
+            description: Snapshot date for this dimension version (partition column).
+            tests:
+              - not_null
+        tests:
+          - unique:
+              column_name: [channel_id, _snapshot_date]
+
+      - name: raw_dim_video
+        description: >
+          Daily full snapshot of the video dimension (PRD §5, D10). Partitioned by
+          _snapshot_date; a video_id appears once per snapshot.
+        columns:
+          - name: video_id
+            description: YouTube video identifier; stable, never reused (PRD §6.1.2).
+            tests:
+              - not_null
+          - name: video_title
+            description: Video title.
+            tests:
+              - not_null
+          - name: published_at
+            description: Video publish date; fixed at creation.
+            tests:
+              - not_null
+          - name: video_duration_min
+            description: Video duration in minutes; > 0.
+            tests:
+              - not_null
+          - name: inserted_at
+            description: Pipeline load timestamp (UTC), fixed once per DAG run.
+          - name: _snapshot_date
+            description: Snapshot date for this dimension version (partition column).
+            tests:
+              - not_null
+        tests:
+          - unique:
+              column_name: [video_id, _snapshot_date]

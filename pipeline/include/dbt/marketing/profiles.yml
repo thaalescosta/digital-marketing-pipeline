@@ -1,0 +1,25 @@
+# BigQuery profile for dbt (PRD §7.4 / §8.1).
+# Env-var driven; service-account auth via a mounted key file (never committed).
+# Use with `dbt build --profiles-dir .` (or set DBT_PROFILES_DIR) for standalone runs;
+# Cosmos supplies the same values from the Airflow connection in the DAGs.
+#
+# Data layers live in separate datasets sharing the base name (PRD §2). Model-level
+# +schema config in dbt_project.yml resolves staging -> <base>_staging and
+# marts -> <base>_marts under the default generate_schema_name behaviour. The profile
+# dataset is the marts dataset and acts as the fallback target.
+marketing:
+  target: dev
+  outputs:
+    dev:
+      type: bigquery
+      method: service-account
+      keyfile: "{{ env_var('GOOGLE_APPLICATION_CREDENTIALS') }}"
+      project: "{{ env_var('GCP_PROJECT_ID') }}"
+      dataset: "{{ env_var('BQ_MARTS_DATASET', 'digital_marketing_marts') }}"
+      location: "{{ env_var('GCP_LOCATION', 'US') }}"
+      threads: 4
+      # Cost guardrail: fail any query that would scan more than 1 GB (PRD §8.1 P1, §10 cost).
+      maximum_bytes_billed: 1000000000
+      job_retries: 1
+      job_retry_deadline_seconds: 300
+      priority: interactive

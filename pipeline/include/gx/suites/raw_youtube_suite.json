@@ -1,0 +1,78 @@
+{
+  "name": "raw_youtube",
+  "meta": {
+    "description": "Raw YouTube video daily contract, scoped to the run's date partition (PRD 9.3).",
+    "table": "raw_youtube_video_daily",
+    "partition_column": "video_date",
+    "severity_policy": "CRITICAL fails the task; WARN logs and continues (PRD 9.5). Unknown severity defaults to CRITICAL.",
+    "templating": "Strings containing {placeholders} are rendered by runner.py from the run context (ds, ds_plus_1, ds_plus_2, project, dataset, raw_dataset, marts_dataset, clause_*).",
+    "notes": "Cross-column rules (likes <= views, subscribers_gained <= views) are enforced as a zero-row query batch."
+  },
+  "batches": [
+    {
+      "name": "videos",
+      "type": "table",
+      "table": "raw_youtube_video_daily",
+      "partition_column": "video_date",
+      "expectations": [
+        {
+          "type": "ExpectTableRowCountToBeBetween",
+          "kwargs": {"min_value": 1},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectCompoundColumnsToBeUnique",
+          "kwargs": {"column_list": ["video_id", "video_date"]},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToEqual",
+          "kwargs": {"column": "video_date", "value": "{ds}"},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToBeBetween",
+          "kwargs": {"column": "views", "min_value": 0},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToBeBetween",
+          "kwargs": {"column": "watch_time_min", "min_value": 0},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToBeBetween",
+          "kwargs": {"column": "likes", "min_value": 0},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToBeBetween",
+          "kwargs": {"column": "comments", "min_value": 0},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToBeBetween",
+          "kwargs": {"column": "shares", "min_value": 0},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToBeBetween",
+          "kwargs": {"column": "subscribers_gained", "min_value": 0},
+          "meta": {"severity": "CRITICAL"}
+        }
+      ]
+    },
+    {
+      "name": "youtube_constraints",
+      "type": "query",
+      "sql": "SELECT 1 AS check_name FROM UNNEST([1]) AS x WHERE EXISTS (SELECT 1 FROM `{project}.{dataset}.raw_youtube_video_daily` WHERE {clause_video_date} AND (likes > views OR subscribers_gained > views))",
+      "expectations": [
+        {
+          "type": "ExpectTableRowCountToEqual",
+          "kwargs": {"value": 0},
+          "meta": {"severity": "CRITICAL"}
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,68 @@
+services:
+  api-server:
+    environment:
+      - GCP_PROJECT_ID=digital-marketing-509604
+      - GCP_LOCATION=US
+      - GCS_BUCKET=thaalescosta_marketing
+      - BQ_RAW_DATASET=digital_marketing_raw
+      - BQ_STAGING_DATASET=digital_marketing_staging
+      - BQ_MARTS_DATASET=digital_marketing_marts
+      - SIM_START_DATE=2026-01-01
+      - HISTORY_MONTHS=6
+      - GEN_SEED=42
+      - DAILY_SESSION_VOLUME=550
+      - AIRFLOW__CORE__TEST_CONNECTION=True
+      - GOOGLE_APPLICATION_CREDENTIALS=/usr/local/airflow/include/gcp_creds/service_account.json
+    volumes:
+      - ./include/gcp_creds:/usr/local/airflow/include/gcp_creds:ro
+
+  scheduler:
+    environment:
+      - GCP_PROJECT_ID=digital-marketing-509604
+      - GCP_LOCATION=US
+      - GCS_BUCKET=thaalescosta_marketing
+      - BQ_RAW_DATASET=digital_marketing_raw
+      - BQ_STAGING_DATASET=digital_marketing_staging
+      - BQ_MARTS_DATASET=digital_marketing_marts
+      - SIM_START_DATE=2026-01-01
+      - HISTORY_MONTHS=6
+      - GEN_SEED=42
+      - DAILY_SESSION_VOLUME=550
+      - AIRFLOW__CORE__TEST_CONNECTION=True
+      - GOOGLE_APPLICATION_CREDENTIALS=/usr/local/airflow/include/gcp_creds/service_account.json
+    volumes:
+      - ./include/gcp_creds:/usr/local/airflow/include/gcp_creds:ro
+
+  dag-processor:
+    environment:
+      - GCP_PROJECT_ID=digital-marketing-509604
+      - GCP_LOCATION=US
+      - GCS_BUCKET=thaalescosta_marketing
+      - BQ_RAW_DATASET=digital_marketing_raw
+      - BQ_STAGING_DATASET=digital_marketing_staging
+      - BQ_MARTS_DATASET=digital_marketing_marts
+      - SIM_START_DATE=2026-01-01
+      - HISTORY_MONTHS=6
+      - GEN_SEED=42
+      - DAILY_SESSION_VOLUME=550
+      - AIRFLOW__CORE__TEST_CONNECTION=True
+      - GOOGLE_APPLICATION_CREDENTIALS=/usr/local/airflow/include/gcp_creds/service_account.json
+    volumes:
+      - ./include/gcp_creds:/usr/local/airflow/include/gcp_creds:ro
+
+  triggerer:
+    environment:
+      - GCP_PROJECT_ID=digital-marketing-509604
+      - GCP_LOCATION=US
+      - GCS_BUCKET=thaalescosta_marketing
+      - BQ_RAW_DATASET=digital_marketing_raw
+      - BQ_STAGING_DATASET=digital_marketing_staging
+      - BQ_MARTS_DATASET=digital_marketing_marts
+      - SIM_START_DATE=2026-01-01
+      - HISTORY_MONTHS=6
+      - GEN_SEED=42
+      - DAILY_SESSION_VOLUME=550
+      - AIRFLOW__CORE__TEST_CONNECTION=True
+      - GOOGLE_APPLICATION_CREDENTIALS=/usr/local/airflow/include/gcp_creds/service_account.json
+    volumes:
+      - ./include/gcp_creds:/usr/local/airflow/include/gcp_creds:ro

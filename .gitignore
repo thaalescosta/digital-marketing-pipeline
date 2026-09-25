@@ -1,0 +1,66 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Claude Code Local Settings
+.claude/settings.local.json
+
+# AgentSpec session-specific files
+.claude/sdd/.detected-stack.md
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+**/.venv/
+**/venv/
+
+# Judge layer — invocation history (contains model, targets, verdicts)
+.claude/storage/judge-ledger.jsonl
+
+# Node
+node_modules/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+
+# Build artifacts
+*.tmp
+
+# OpenCode local files
+.opencode/*.local.*
+.opencode/sessions/
+
+# Pipeline — secrets and local artifacts
+pipeline/include/gcp_creds/
+pipeline/.env
+pipeline/.dockerignore
+pipeline/include/dbt/marketing/logs/
+pipeline/include/dbt/marketing/target/
+pipeline/include/dbt/marketing/.user.yml
+pipeline/include/gx/uncommitted/
+pipeline/include/gx/great_expectations/uncommitted/
+pipeline/include/gx/data_docs/
+pipeline/.astro/
+pipeline/include/datagen/*.egg-info/
+pipeline/include/datagen/.pytest_cache/
+
+# OS / editor pipeline-local
+pipeline/.obsidian/
+pipeline/*.canvas
+pipeline/*.md.tmp

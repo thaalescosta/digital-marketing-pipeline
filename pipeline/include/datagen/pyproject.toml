@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+# Private portfolio package: installed editable inside the Airflow image,
+# never published to any package index.
+[project]
+name = "datagen"
+version = "0.1.0"
+description = "Deterministic fake marketing data generator for the digital marketing pipeline (private)."
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=1.26",
+    "pandas>=2.2",
+    "pyarrow",
+    "google-cloud-storage",
+    "google-cloud-bigquery",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "ruff"]
+
+[project.scripts]
+datagen-backfill = "datagen.__main__:backfill_main"
+datagen-daily = "datagen.__main__:daily_main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88

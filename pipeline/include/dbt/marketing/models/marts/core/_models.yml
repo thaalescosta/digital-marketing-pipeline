@@ -1,0 +1,440 @@
+version: 2
+
+models:
+  - name: dim_date
+    description: >
+      Conformed date dimension (PRD §8.3). One row per date from dim_date_start to
+      dim_date_end. date_sk is an INT in YYYYMMDD format (star-schema KB). All fact tables
+      join to dim_date on date_sk; the natural date partition columns also join on
+      dim_date.date for readability and partition-aligned checks.
+    columns:
+      - name: date
+        description: Calendar date (UTC).
+        tests:
+          - unique
+          - not_null
+      - name: date_sk
+        description: Surrogate key, INT in YYYYMMDD format, e.g. 20260101.
+        tests:
+          - unique
+          - not_null
+      - name: year
+        description: Calendar year of the date.
+      - name: quarter
+        description: Calendar quarter (1-4).
+      - name: month
+        description: Calendar month number (1-12).
+      - name: month_name
+        description: Full month name, e.g. January.
+      - name: week_start
+        description: Date of the Monday that starts the ISO-ish business week of this date.
+      - name: day_of_week
+        description: Day of week per BigQuery EXTRACT(DAYOFWEEK), 1=Sunday through 7=Saturday.
+      - name: is_weekend
+        description: True when day_of_week is 1 (Sunday) or 7 (Saturday).
+
+  - name: dim_channel
+    description: >
+      Channel dimension (PRD §8.3). Grain: channel_id. The 7 fixed channels as the latest
+      snapshot (paid_search, organic_search, direct, social, email, referral,
+      organic_video). Column names avoid the reserved word "group" — channel_group maps to
+      the PRD's "group".
+    columns:
+      - name: channel_id
+        description: Channel identifier (1-7); conformed key shared by GA4 and Ads facts.
+        tests:
+          - unique
+          - not_null
+      - name: channel_name
+        description: Channel name, e.g. paid_search.
+        tests:
+          - not_null
+      - name: channel_group
+        description: Channel group, e.g. Search, Social, Direct, Email, Referral, Organic Video.
+        tests:
+          - not_null
+
+  - name: dim_campaign
+    description: >
+      Campaign dimension (PRD §8.3, SCD1 end state from the latest snapshot). Grain:
+      campaign_id. campaign_duration_days = end_date - start_date.
+    columns:
+      - name: campaign_id
+        description: Campaign identifier; stable, never reused.
+        tests:
+          - unique
+          - not_null
+      - name: campaign_name
+        description: Campaign display name.
+        tests:
+          - not_null
+      - name: campaign_type
+        description: Campaign type; one of Search, Display, Shopping, Video.
+        tests:
+          - accepted_values:
+              values: ['Search', 'Display', 'Shopping', 'Video']
+      - name: status
+        description: Campaign status; Active or Ended.
+        tests:
+          - accepted_values:
+              values: ['Active', 'Ended']
+      - name: start_date
+        description: Campaign start date; fixed at creation.
+        tests:
+          - not_null
+      - name: end_date
+        description: Campaign end date; fixed at creation; >= start_date.
+        tests:
+          - not_null
+      - name: daily_budget_usd
+        description: Daily budget in USD; > 0 (spend may reach ~1.3x budget, D8).
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: false
+      - name: campaign_duration_days
+        description: end_date - start_date in days; >= 0.
+    tests:
+      - expression_is_true:
+          expression: "end_date >= start_date"
+      - expression_is_true:
+          expression: "campaign_duration_days >= 0"
+
+  - name: dim_video
+    description: >
+      Video dimension (PRD §8.3, SCD1 end state from the latest snapshot). Grain: video_id.
+    columns:
+      - name: video_id
+        description: YouTube video identifier; stable, never reused.
+        tests:
+          - unique
+          - not_null
+      - name: video_title
+        description: Video title.
+        tests:
+          - not_null
+      - name: published_at
+        description: Video publish date; fixed at creation.
+        tests:
+          - not_null
+      - name: video_duration_min
+        description: Video duration in minutes; > 0.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: false
+
+  - name: fct_web_events
+    description: >
+      Web event fact (PRD §8.3). Grain: event_id. One row per GA4 event. Incremental
+      insert_overwrite partitioned by event_date with a 3-day lookback window.
+    columns:
+      - name: event_id
+        description: Unique event identifier (UUID).
+        tests:
+          - unique
+          - not_null
+      - name: event_date
+        description: Session start date (UTC); partition column.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: date
+      - name: date_sk
+        description: Conformed date surrogate key (YYYYMMDD) -> dim_date.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: date_sk
+      - name: event_timestamp
+        description: Event timestamp (UTC); may spill into the next day relative to event_date.
+      - name: event_name
+        description: Event type; one of session_start, page_view, scroll, add_to_cart, begin_checkout, purchase.
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['session_start', 'page_view', 'scroll', 'add_to_cart', 'begin_checkout', 'purchase']
+      - name: user_pseudo_id
+        description: Pseudonymous user identifier; null for ~2% (anonymous) sessions.
+      - name: session_id
+        description: Session identifier; all events of one session share event_date and one channel.
+        tests:
+          - not_null
+      - name: channel_id
+        description: Marketing channel id; FK to dim_channel.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_channel')
+              field: channel_id
+      - name: page_path
+        description: Path component of page_location, e.g. /products/analytics.
+      - name: event_value
+        description: Monetary event value; only set for purchase events; >= 0 when present.
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: event_hour
+        description: Hour of day (0-23, UTC).
+
+  - name: fct_web_sessions
+    description: >
+      Web session fact (PRD §8.3). Grain: session_id. One row per GA4 session aggregated
+      from events. session_date = session start event_date; channel_id = channel of the
+      first (session_start) event. Incremental insert_overwrite partitioned by
+      session_date with a 3-day lookback window.
+    columns:
+      - name: session_id
+        description: Unique session identifier (YYYYMMDD-<10 digits>).
+        tests:
+          - unique
+          - not_null
+      - name: session_date
+        description: Session start date (UTC); partition column; = min(event_date) of the session's events.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: date
+      - name: date_sk
+        description: Conformed date surrogate key (YYYYMMDD) -> dim_date.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: date_sk
+      - name: session_start_ts
+        description: Timestamp of the session's first event (session_start).
+      - name: session_end_ts
+        description: Timestamp of the session's last event.
+      - name: session_duration_min
+        description: session_end_ts - session_start_ts in minutes; >= 0.
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: user_pseudo_id
+        description: Pseudonymous user identifier of the session; null for anonymous sessions.
+      - name: channel_id
+        description: Channel of the session's first event; FK to dim_channel.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_channel')
+              field: channel_id
+      - name: event_count
+        description: Number of events in the session; >= 1.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 1
+              inclusive: true
+      - name: page_view_count
+        description: Number of page_view events in the session; <= event_count.
+        tests:
+          - not_null
+      - name: has_add_to_cart
+        description: True if the session contains at least one add_to_cart event.
+      - name: has_begin_checkout
+        description: True if the session contains at least one begin_checkout event (funnel events are generated independently — no enforced order, PRD §3.3).
+      - name: has_purchase
+        description: True if the session contains at least one purchase event.
+      - name: purchase_value
+        description: Sum of event_value over purchase events (GA4 revenue); 0 when no purchase; >= 0.
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+    tests:
+      - expression_is_true:
+          expression: "page_view_count <= event_count"
+      - expression_is_true:
+          expression: "has_purchase = (purchase_value > 0)"
+
+  - name: fct_ad_performance_daily
+    description: >
+      Ad performance fact (PRD §8.3). Grain: ad_performance_key (surrogate of campaign_id,
+      ad_group_id, ad_id, spend_date). One row per ad per day. Incremental
+      insert_overwrite partitioned by spend_date with a 3-day lookback window.
+      estimated_revenue_usd is ESTIMATED (PRD §8.4) — GA4 and Ads conversions are generated
+      independently and do not reconcile.
+    columns:
+      - name: ad_performance_key
+        description: Surrogate key = hash of (campaign_id, ad_group_id, ad_id, spend_date).
+        tests:
+          - unique
+          - not_null
+      - name: spend_date
+        description: Data date of the run (UTC); partition column.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: date
+      - name: date_sk
+        description: Conformed date surrogate key (YYYYMMDD) -> dim_date.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: date_sk
+      - name: campaign_id
+        description: Campaign identifier; FK to dim_campaign.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_campaign')
+              field: campaign_id
+      - name: channel_id
+        description: Ads channel id; FK to dim_channel (1 paid_search or 4 social in this simulation).
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_channel')
+              field: channel_id
+      - name: ad_group_id
+        description: Ad group identifier; stable per campaign (D7).
+        tests:
+          - not_null
+      - name: ad_id
+        description: Ad identifier; stable per campaign (D7).
+        tests:
+          - not_null
+      - name: spend_usd
+        description: Ad spend in USD; >= 0.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: impressions
+        description: Ad impressions; >= 0; clicks <= impressions.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: clicks
+        description: Ad clicks; >= 0; <= impressions; conversions <= clicks.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: conversions
+        description: Ad conversions; >= 0; <= clicks.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: avg_order_value
+        description: Average order value in USD; > 0.
+        tests:
+          - not_null
+      - name: estimated_revenue_usd
+        description: ESTIMATED revenue = conversions * avg_order_value (PRD §8.4); >= 0.
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+    tests:
+      - expression_is_true:
+          expression: "clicks <= impressions"
+      - expression_is_true:
+          expression: "conversions <= clicks"
+      - expression_is_true:
+          expression: "avg_order_value > 0"
+      - expression_is_true:
+          expression: "estimated_revenue_usd = conversions * avg_order_value"
+
+  - name: fct_youtube_video_daily
+    description: >
+      YouTube video daily fact (PRD §8.3). Grain: (video_id, video_date). One row per video
+      per day. Incremental insert_overwrite partitioned by video_date with a 3-day lookback
+      window. days_since_published is relative to dim_video.published_at.
+    columns:
+      - name: video_daily_key
+        description: Surrogate key = hash of (video_id, video_date); convenience grain key.
+        tests:
+          - unique
+          - not_null
+      - name: video_id
+        description: YouTube video identifier; FK to dim_video.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_video')
+              field: video_id
+      - name: video_date
+        description: Data date of the run (UTC); partition column.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: date
+      - name: date_sk
+        description: Conformed date surrogate key (YYYYMMDD) -> dim_date.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: date_sk
+      - name: views
+        description: Daily video views; >= 0.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: watch_time_min
+        description: Daily watch time in minutes; >= 0.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: likes
+        description: Daily likes; >= 0; <= views.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: comments
+        description: Daily comments; >= 0.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: shares
+        description: Daily shares; >= 0.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: subscribers_gained
+        description: Daily subscribers gained; >= 0; <= views.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: days_since_published
+        description: video_date - dim_video.published_at in days; >= 0 (see singular test test_video_date_not_before_published).
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+    tests:
+      - unique:
+          column_name: [video_id, video_date]
+      - expression_is_true:
+          expression: "likes <= views and subscribers_gained <= views"

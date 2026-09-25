@@ -1,0 +1,26 @@
+{
+  "name": "agentspec",
+  "version": "3.6.0",
+  "description": "Spec-Driven Development framework for Data Engineering — 58 agents, 24 KB domains, 5-phase SDD workflow, 31 commands",
+  "author": {
+    "name": "Luan Moreno",
+    "url": "https://github.com/luanmorenommaciel"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/luanmorenommaciel/agentspec",
+  "homepage": "https://github.com/luanmorenommaciel/agentspec",
+  "keywords": [
+    "data-engineering",
+    "sdd",
+    "spec-driven-development",
+    "dbt",
+    "spark",
+    "airflow",
+    "pipeline",
+    "schema-design",
+    "data-quality",
+    "lakehouse",
+    "medallion",
+    "streaming"
+  ]
+}

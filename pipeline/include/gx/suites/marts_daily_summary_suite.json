@@ -1,0 +1,231 @@
+{
+  "name": "marts_daily_summary",
+  "meta": {
+    "description": "Marts completeness, raw-to-mart reconciliation and reporting sanity for the run's date (PRD 9.4).",
+    "severity_policy": "CRITICAL fails the task; WARN logs and continues (PRD 9.5). Unknown severity defaults to CRITICAL.",
+    "templating": "Strings containing {placeholders} are rendered by runner.py from the run context (ds, ds_plus_1, ds_plus_2, project, dataset, raw_dataset, marts_dataset, clause_*).",
+    "assumptions": "rpt_channel_performance_daily uses stat_date as its date column (per DESIGN incremental-strategy table; PRD 8.3 only states the date x channel grain) and fct_web_events is the PRD 8.3 marts events fact name. Reconciliation queries are zero-row queries: a returned row means the raw and marts values differ, so ExpectTableRowCountToEqual(0) is CRITICAL.",
+    "cost_notes": "In scope=partition every query is filtered to the run's date; in scope=full the same checks run over whole tables for the initial load."
+  },
+  "batches": [
+    {
+      "name": "fct_web_sessions_present",
+      "type": "table",
+      "table": "fct_web_sessions",
+      "partition_column": "session_date",
+      "expectations": [
+        {
+          "type": "ExpectTableRowCountToBeBetween",
+          "kwargs": {"min_value": 1},
+          "meta": {"severity": "CRITICAL"}
+        }
+      ]
+    },
+    {
+      "name": "fct_ad_performance_daily_present",
+      "type": "table",
+      "table": "fct_ad_performance_daily",
+      "partition_column": "spend_date",
+      "expectations": [
+        {
+          "type": "ExpectTableRowCountToBeBetween",
+          "kwargs": {"min_value": 1},
+          "meta": {"severity": "CRITICAL"}
+        }
+      ]
+    },
+    {
+      "name": "fct_youtube_video_daily_present",
+      "type": "table",
+      "table": "fct_youtube_video_daily",
+      "partition_column": "video_date",
+      "expectations": [
+        {
+          "type": "ExpectTableRowCountToBeBetween",
+          "kwargs": {"min_value": 1},
+          "meta": {"severity": "CRITICAL"}
+        }
+      ]
+    },
+    {
+      "name": "rpt_channel_performance_daily_present",
+      "type": "table",
+      "table": "rpt_channel_performance_daily",
+      "partition_column": "stat_date",
+      "expectations": [
+        {
+          "type": "ExpectTableRowCountToBeBetween",
+          "kwargs": {"min_value": 1},
+          "meta": {"severity": "CRITICAL"}
+        }
+      ]
+    },
+    {
+      "name": "dim_date_present",
+      "type": "table",
+      "table": "dim_date",
+      "expectations": [
+        {
+          "type": "ExpectTableRowCountToBeBetween",
+          "kwargs": {"min_value": 1},
+          "meta": {"severity": "CRITICAL"}
+        }
+      ]
+    },
+    {
+      "name": "dim_date_no_gaps",
+      "type": "query",
+      "sql": "SELECT missing_date FROM UNNEST(GENERATE_DATE_ARRAY((SELECT MIN(date) FROM `{project}.{marts_dataset}.dim_date`), (SELECT MAX(date) FROM `{project}.{marts_dataset}.dim_date`))) AS missing_date LEFT JOIN `{project}.{marts_dataset}.dim_date` d ON d.date = missing_date WHERE d.date IS NULL",
+      "expectations": [
+        {
+          "type": "ExpectTableRowCountToEqual",
+          "kwargs": {"value": 0},
+          "meta": {"severity": "CRITICAL"}
+        }
+      ]
+    },
+    {
+      "name": "recon_ads_spend_usd",
+      "type": "query",
+      "sql": "SELECT 1 AS check_name FROM UNNEST([1]) AS x WHERE (SELECT COALESCE(SUM(spend_usd), -1) FROM `{project}.{marts_dataset}.fct_ad_performance_daily` WHERE {clause_spend_date}) <> (SELECT COALESCE(SUM(spend_usd), -1) FROM `{project}.{raw_dataset}.raw_ads_campaign_daily` WHERE {clause_spend_date})",
+      "expectations": [
+        {
+          "type": "ExpectTableRowCountToEqual",
+          "kwargs": {"value": 0},
+          "meta": {"severity": "CRITICAL"}
+        }
+      ]
+    },
+    {
+      "name": "recon_ads_clicks",
+      "type": "query",
+      "sql": "SELECT 1 AS check_name FROM UNNEST([1]) AS x WHERE (SELECT COALESCE(SUM(clicks), -1) FROM `{project}.{marts_dataset}.fct_ad_performance_daily` WHERE {clause_spend_date}) <> (SELECT COALESCE(SUM(clicks), -1) FROM `{project}.{raw_dataset}.raw_ads_campaign_daily` WHERE {clause_spend_date})",
+      "expectations": [
+        {
+          "type": "ExpectTableRowCountToEqual",
+          "kwargs": {"value": 0},
+          "meta": {"severity": "CRITICAL"}
+        }
+      ]
+    },
+    {
+      "name": "recon_web_events",
+      "type": "query",
+      "sql": "SELECT 1 AS check_name FROM UNNEST([1]) AS x WHERE (SELECT COUNT(DISTINCT event_id) FROM `{project}.{marts_dataset}.fct_web_events` WHERE {clause_event_date}) <> (SELECT COUNT(DISTINCT event_id) FROM `{project}.{raw_dataset}.raw_ga4_events` WHERE {clause_event_date})",
+      "expectations": [
+        {
+          "type": "ExpectTableRowCountToEqual",
+          "kwargs": {"value": 0},
+          "meta": {"severity": "CRITICAL"}
+        }
+      ]
+    },
+    {
+      "name": "recon_youtube_views",
+      "type": "query",
+      "sql": "SELECT 1 AS check_name FROM UNNEST([1]) AS x WHERE (SELECT COALESCE(SUM(views), -1) FROM `{project}.{marts_dataset}.fct_youtube_video_daily` WHERE {clause_video_date}) <> (SELECT COALESCE(SUM(views), -1) FROM `{project}.{raw_dataset}.raw_youtube_video_daily` WHERE {clause_video_date})",
+      "expectations": [
+        {
+          "type": "ExpectTableRowCountToEqual",
+          "kwargs": {"value": 0},
+          "meta": {"severity": "CRITICAL"}
+        }
+      ]
+    },
+    {
+      "name": "recon_sessions",
+      "type": "query",
+      "sql": "SELECT 1 AS check_name FROM UNNEST([1]) AS x WHERE (SELECT COALESCE(SUM(sessions), 0) FROM `{project}.{marts_dataset}.rpt_channel_performance_daily` WHERE {clause_stat_date}) <> (SELECT COUNT(DISTINCT session_id) FROM `{project}.{raw_dataset}.raw_ga4_events` WHERE {clause_event_date})",
+      "expectations": [
+        {
+          "type": "ExpectTableRowCountToEqual",
+          "kwargs": {"value": 0},
+          "meta": {"severity": "CRITICAL"}
+        }
+      ]
+    },
+    {
+      "name": "rpt_sanity",
+      "type": "table",
+      "table": "rpt_channel_performance_daily",
+      "partition_column": "stat_date",
+      "expectations": [
+        {
+          "type": "ExpectColumnValuesToNotBeNull",
+          "kwargs": {"column": "channel_id"},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToNotBeNull",
+          "kwargs": {"column": "stat_date"},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToBeBetween",
+          "kwargs": {"column": "ctr", "min_value": 0, "max_value": 1},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToBeBetween",
+          "kwargs": {"column": "session_to_purchase_rate", "min_value": 0, "max_value": 1},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToBeBetween",
+          "kwargs": {"column": "sessions", "min_value": 0},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToBeBetween",
+          "kwargs": {"column": "users", "min_value": 0},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToBeBetween",
+          "kwargs": {"column": "purchases", "min_value": 0},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToBeBetween",
+          "kwargs": {"column": "revenue_usd", "min_value": 0},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToBeBetween",
+          "kwargs": {"column": "ad_spend_usd", "min_value": 0},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToBeBetween",
+          "kwargs": {"column": "ad_impressions", "min_value": 0},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToBeBetween",
+          "kwargs": {"column": "ad_clicks", "min_value": 0},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToBeBetween",
+          "kwargs": {"column": "ad_conversions", "min_value": 0},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToBeBetween",
+          "kwargs": {"column": "ad_estimated_revenue_usd", "min_value": 0},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToBeBetween",
+          "kwargs": {"column": "cpc", "min_value": 0},
+          "meta": {"severity": "CRITICAL"}
+        },
+        {
+          "type": "ExpectColumnValuesToBeBetween",
+          "kwargs": {"column": "roas_estimated", "min_value": 0},
+          "meta": {"severity": "CRITICAL"}
+        }
+      ]
+    }
+  ]
+}

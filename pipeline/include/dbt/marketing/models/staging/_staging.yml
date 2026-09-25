@@ -1,0 +1,299 @@
+version: 2
+
+models:
+  - name: stg_ga4__events
+    description: >
+      Staging view over raw_ga4_events (PRD §8.2). Grain: event_id. Responsibilities:
+      rename/keep the raw contract, defensive dedupe by event_id (latest inserted_at), and
+      light derived fields (page_path, is_anonymous_user, event_hour). NO business logic
+      and NO joins across sources in this layer.
+    columns:
+      - name: event_id
+        description: Unique event identifier (UUID).
+        tests:
+          - unique
+          - not_null
+      - name: event_date
+        description: Data date of the session start (UTC); never assert date(event_timestamp) = event_date (PRD §3.3).
+        tests:
+          - not_null
+      - name: event_timestamp
+        description: Event timestamp (UTC); may fall in [event_date, event_date + 2 days).
+      - name: event_name
+        description: Event type; one of session_start, page_view, scroll, add_to_cart, begin_checkout, purchase.
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['session_start', 'page_view', 'scroll', 'add_to_cart', 'begin_checkout', 'purchase']
+      - name: user_pseudo_id
+        description: Pseudonymous user identifier; null for ~2% (anonymous) sessions.
+      - name: session_id
+        description: Session identifier; all events of one session share event_date and one channel.
+        tests:
+          - not_null
+      - name: channel_id
+        description: Marketing channel id (1-7), per event; FK to dim_channel in marts.
+        tests:
+          - not_null
+      - name: page_location
+        description: Full page URL; null for session_start events and ~5% of other events.
+      - name: page_path
+        description: Path component of page_location, e.g. /products/analytics; null when page_location is null or has no path.
+      - name: event_value
+        description: Monetary event value; only set for purchase events.
+      - name: is_anonymous_user
+        description: True when user_pseudo_id is null (consented/anonymous session).
+      - name: event_hour
+        description: Hour of day (0-23, UTC) extracted from event_timestamp.
+      - name: inserted_at
+        description: Pipeline load timestamp (UTC), fixed once per DAG run.
+
+  - name: stg_google_ads__campaign_daily
+    description: >
+      Staging view over raw_ads_campaign_daily (PRD §8.2). Grain: ad_performance_key, a
+      surrogate of (campaign_id, ad_group_id, ad_id, spend_date). Defensive dedupe on the
+      key (latest inserted_at) and a light derived field estimated_revenue_usd =
+      conversions * avg_order_value (PRD §8.4). NO joins across sources.
+    columns:
+      - name: ad_performance_key
+        description: Surrogate key = hash of (campaign_id, ad_group_id, ad_id, spend_date).
+        tests:
+          - unique
+          - not_null
+      - name: campaign_id
+        description: Campaign identifier; FK to dim_campaign in marts.
+        tests:
+          - not_null
+      - name: channel_id
+        description: Ads channel id; 1 (paid_search) or 4 (social) in this simulation (D11).
+        tests:
+          - not_null
+      - name: ad_group_id
+        description: Ad group identifier; stable per campaign (D7).
+        tests:
+          - not_null
+      - name: ad_id
+        description: Ad identifier; stable per campaign (D7).
+        tests:
+          - not_null
+      - name: spend_date
+        description: Data date of the run (UTC); partition column in marts fact.
+        tests:
+          - not_null
+      - name: spend_usd
+        description: Ad spend in USD; >= 0 and <= ~1.3x the campaign daily budget (D8).
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: impressions
+        description: Ad impressions; >= 0; clicks <= impressions.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: clicks
+        description: Ad clicks; >= 0; <= impressions; conversions <= clicks.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: conversions
+        description: Ad conversions; >= 0; <= clicks.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: avg_order_value
+        description: Average order value in USD; > 0.
+        tests:
+          - not_null
+      - name: estimated_revenue_usd
+        description: ESTIMATED revenue = conversions * avg_order_value (PRD §8.4). Label as estimated; GA4 and Ads conversions are generated independently and do not reconcile (PRD §3.3).
+      - name: inserted_at
+        description: Pipeline load timestamp (UTC), fixed once per DAG run.
+      - name: _load_date
+        description: The batch's data date (= spend_date); NOT a wall-clock load date.
+    tests:
+      - expression_is_true:
+          expression: "clicks <= impressions"
+      - expression_is_true:
+          expression: "conversions <= clicks"
+      - expression_is_true:
+          expression: "avg_order_value > 0"
+
+  - name: stg_youtube__video_daily
+    description: >
+      Staging view over raw_youtube_video_daily (PRD §8.2). Grain: (video_id, video_date),
+      with a surrogate key for convenience. Defensive dedupe on the grain (latest
+      inserted_at). NO business logic, no joins.
+    columns:
+      - name: video_daily_key
+        description: Surrogate key = hash of (video_id, video_date).
+        tests:
+          - unique
+          - not_null
+      - name: video_id
+        description: YouTube video identifier; FK to dim_video in marts.
+        tests:
+          - not_null
+      - name: video_date
+        description: Data date of the run (UTC); partition column in marts fact.
+        tests:
+          - not_null
+      - name: views
+        description: Daily video views; >= 0.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: watch_time_min
+        description: Daily watch time in minutes; >= 0.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: likes
+        description: Daily likes; >= 0; <= views.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: comments
+        description: Daily comments; >= 0.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: shares
+        description: Daily shares; >= 0.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: subscribers_gained
+        description: Daily subscribers gained; >= 0; <= views.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: inserted_at
+        description: Pipeline load timestamp (UTC), fixed once per DAG run.
+      - name: _load_date
+        description: The batch's data date (= video_date); NOT a wall-clock load date.
+    tests:
+      - expression_is_true:
+          expression: "likes <= views and subscribers_gained <= views"
+
+  - name: stg_google_ads__campaigns
+    description: >
+      Staging view over raw_dim_campaign (PRD §8.2). Grain: campaign_id. Resolves the
+      dimension snapshot series to the LATEST snapshot per key (max _snapshot_date,
+      tie-break inserted_at) — SCD1-style end state used by dim_campaign. No joins.
+    columns:
+      - name: campaign_id
+        description: Campaign identifier; FK key.
+        tests:
+          - unique
+          - not_null
+      - name: campaign_name
+        description: Campaign display name.
+        tests:
+          - not_null
+      - name: campaign_type
+        description: Campaign type; one of Search, Display, Shopping, Video.
+        tests:
+          - accepted_values:
+              values: ['Search', 'Display', 'Shopping', 'Video']
+      - name: status
+        description: Campaign status; Active or Ended.
+        tests:
+          - accepted_values:
+              values: ['Active', 'Ended']
+      - name: start_date
+        description: Campaign start date; fixed at creation.
+        tests:
+          - not_null
+      - name: end_date
+        description: Campaign end date; fixed at creation; >= start_date.
+        tests:
+          - not_null
+      - name: daily_budget_usd
+        description: Daily budget in USD; > 0.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: false
+      - name: _snapshot_date
+        description: Snapshot date of the latest raw version selected for this key.
+      - name: inserted_at
+        description: Pipeline load timestamp (UTC) of the selected raw version.
+    tests:
+      - expression_is_true:
+          expression: "end_date >= start_date"
+
+  - name: stg_youtube__videos
+    description: >
+      Staging view over raw_dim_video (PRD §8.2). Grain: video_id. Latest snapshot per key
+      (max _snapshot_date, tie-break inserted_at) — SCD1-style end state used by dim_video.
+      No joins.
+    columns:
+      - name: video_id
+        description: YouTube video identifier; FK key.
+        tests:
+          - unique
+          - not_null
+      - name: video_title
+        description: Video title.
+        tests:
+          - not_null
+      - name: published_at
+        description: Video publish date; fixed at creation.
+        tests:
+          - not_null
+      - name: video_duration_min
+        description: Video duration in minutes; > 0.
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: false
+      - name: _snapshot_date
+        description: Snapshot date of the latest raw version selected for this key.
+      - name: inserted_at
+        description: Pipeline load timestamp (UTC) of the selected raw version.
+
+  - name: stg_reference__channels
+    description: >
+      Staging view over raw_dim_channel (PRD §8.2). Grain: channel_id. Latest snapshot per
+      key (max _snapshot_date, tie-break inserted_at) — the channel master (7 fixed rows).
+      No joins.
+    columns:
+      - name: channel_id
+        description: Channel identifier (1-7); FK key.
+        tests:
+          - unique
+          - not_null
+      - name: channel_name
+        description: Channel name, e.g. paid_search.
+        tests:
+          - not_null
+      - name: channel_group
+        description: Channel group, e.g. Search, Social, Direct, Email, Referral, Organic Video.
+        tests:
+          - not_null
+      - name: _snapshot_date
+        description: Snapshot date of the latest raw version selected for this key.
+      - name: inserted_at
+        description: Pipeline load timestamp (UTC) of the selected raw version.
